@@ -1,63 +1,76 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="UTF-8">
 <title>Telegram Scanner MiniApp</title>
 <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
 <style>
-  video, canvas { border: 1px solid #ccc; width: 300px; height: auto; margin: 5px 0; }
-  button { margin: 5px; padding: 8px 12px; }
+  body { font-family: sans-serif; padding: 10px; text-align: center; }
+  video, canvas { border: 1px solid #ccc; width: 280px; border-radius: 8px; margin: 5px 0; }
+  button { margin: 5px; padding: 8px 12px; border-radius: 8px; border: none; cursor: pointer; }
+  #previewContainer img { width: 80px; margin: 3px; border-radius: 6px; border: 1px solid #ddd; }
 </style>
 </head>
 <body>
-<h1>Mini Scanner</h1>
+<h2>📄 Telegram Mini Scanner</h2>
 <video autoplay></video><br>
-<button id="snap">Сделать фото</button>
-<button id="ocrToggle">OCR: Вкл/Выкл</button>
-<button id="send">Отправить PDF в Telegram</button>
+<button id="snap">📸 Сделать фото</button>
+<button id="ocrToggle">🧠 OCR: Выкл</button>
+<button id="preview">👁️ Просмотр PDF</button>
+<button id="send">📤 Отправить в Telegram</button>
+<div id="previewContainer"></div>
 <canvas style="display:none;"></canvas>
 
 <script>
 const video = document.querySelector('video');
 const canvas = document.querySelector('canvas');
+const previewContainer = document.getElementById('previewContainer');
 let images = [];
 let useOCR = false;
 
 // Камера
 async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  video.srcObject = stream;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+  } catch (err) {
+    alert("Ошибка доступа к камере: " + err.message);
+  }
 }
 startCamera();
 
 // Переключение OCR
 document.getElementById('ocrToggle').onclick = () => {
   useOCR = !useOCR;
-  alert("OCR " + (useOCR ? "включен" : "выключен"));
+  document.getElementById('ocrToggle').innerText = useOCR ? "🧠 OCR: Вкл" : "🧠 OCR: Выкл";
 };
 
-// Сделать фото с фильтром "скан"
+// Сделать фото
 document.getElementById('snap').onclick = () => {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  // Черно-белое преобразование
+  // Черно-белый фильтр (имитация сканера)
   let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   let data = imageData.data;
-  for (let i=0; i<data.length; i+=4) {
-    let avg = 0.3*data[i] + 0.59*data[i+1] + 0.11*data[i+2];
-    data[i] = data[i+1] = data[i+2] = avg;
+  for (let i = 0; i < data.length; i += 4) {
+    let avg = 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2];
+    data[i] = data[i + 1] = data[i + 2] = avg;
   }
   ctx.putImageData(imageData, 0, 0);
 
-  images.push(canvas.toDataURL('image/png'));
-  alert('Фото добавлено! Всего страниц: ' + images.length);
+  const imgData = canvas.toDataURL('image/png');
+  images.push(imgData);
+
+  const imgEl = document.createElement('img');
+  imgEl.src = imgData;
+  previewContainer.appendChild(imgEl);
 };
 
-// Генерация PDF с опциональным OCR
+// Генерация PDF
 async function generatePDFBlob() {
   const { PDFDocument, StandardFonts } = PDFLib;
   const pdfDoc = await PDFDocument.create();
@@ -70,12 +83,9 @@ async function generatePDFBlob() {
     page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
 
     if (useOCR) {
-      // OCR через tesseract.js
       const result = await Tesseract.recognize(imgData, 'eng');
       const text = result.data.text.trim();
-      if (text.length > 0) {
-        page.drawText(text, { x: 10, y: img.height - 20, size: 12, font });
-      }
+      if (text) page.drawText(text, { x: 10, y: img.height - 20, size: 12, font });
     }
   }
 
@@ -83,9 +93,17 @@ async function generatePDFBlob() {
   return new Blob([pdfBytes], { type: 'application/pdf' });
 }
 
-// Отправка PDF в Telegram
+// Просмотр PDF перед отправкой
+document.getElementById('preview').onclick = async () => {
+  if (images.length === 0) { alert('Сначала сделай хотя бы одно фото!'); return; }
+  const pdfBlob = await generatePDFBlob();
+  const url = URL.createObjectURL(pdfBlob);
+  window.open(url, '_blank');
+};
+
+// Отправка PDF
 document.getElementById('send').onclick = async () => {
-  if (images.length === 0) { alert('Сначала сделайте хотя бы одно фото!'); return; }
+  if (images.length === 0) { alert('Сначала сделай хотя бы одно фото!'); return; }
 
   const pdfBlob = await generatePDFBlob();
   const reader = new FileReader();
@@ -95,11 +113,10 @@ document.getElementById('send').onclick = async () => {
       fileName: 'document.pdf',
       fileData: base64
     }));
-    alert('PDF отправлен боту!');
+    alert('📤 PDF отправлен боту!');
   };
   reader.readAsDataURL(pdfBlob);
 };
-
 </script>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </body>
